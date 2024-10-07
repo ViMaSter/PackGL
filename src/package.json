@@ -1,0 +1,25 @@
+{
+  "name": "packgl",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ViMaSter/PackGL.git"
+  },
+  "author": "Vincent Mahnke (vincent@mahn.ke)",
+  "license": "MPL-2.0",
+  "bugs": {
+    "url": "https://github.com/ViMaSter/PackGL/issues"
+  },
+  "homepage": "https://github.com/ViMaSter/PackGL#readme",
+  "description": "",
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.8"
+  }
+}
