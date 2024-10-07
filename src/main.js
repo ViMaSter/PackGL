@@ -322,8 +322,8 @@ const spawnCube = (x, y, object) => {
 // disable rightclick context menu
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-camera.position.z = 75;
-camera.position.y = 233;
+camera.position.z = 35;
+camera.position.y = 111;
 camera.rotation.x = -Math.PI / 2.5;
 
 // listen to mose wheel and change camera rotation z
