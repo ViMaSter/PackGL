@@ -17,6 +17,7 @@
   "homepage": "https://github.com/ViMaSter/PackGL#readme",
   "description": "",
   "dependencies": {
+    "stats-gl": "^2.2.8",
     "three": "^0.169.0"
   },
   "devDependencies": {

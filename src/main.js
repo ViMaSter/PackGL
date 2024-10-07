@@ -1,4 +1,10 @@
 import * as THREE from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+
+import Stats from 'stats-gl';
+
 const loader = new THREE.FileLoader();
 
 const editMode = true;
@@ -15,91 +21,224 @@ const keys = {};
 let isRightMouseDown = false;
 let lastMouseX = 0;
 let lastMouseY = 0;
-let playerCube = null;
 
-const handleKeyDown = (e) => keys[e.key] = true;
-const handleKeyUp = (e) => keys[e.key] = false;
-const handleMouseDown = (e) => {
-    if (e.button === 2) {
-        isRightMouseDown = true;
-        lastMouseX = e.clientX;
-        lastMouseY = e.clientY;
+class EditorMode {
+    constructor() {
+        this.moveSpeed = 1;
+        this.handleKeyDown = this.handleKeyDown.bind(this);
+        this.handleKeyUp =  this.handleKeyUp.bind(this);
+        this.handleMouseDown =  this.handleMouseDown.bind(this);
+        this.handleMouseUp =    this.handleMouseUp.bind(this);
+        this.handleMouseMove =  this.handleMouseMove.bind(this);
+        this.handleWheel =    this.handleWheel.bind(this);
+        this.updateCameraPosition = this.updateCameraPosition.bind(this);
     }
-};
-const handleMouseUp = (e) => {
-    if (e.button === 2) {
-        isRightMouseDown = false;
+
+    updateCameraPosition() {
+        const direction = new THREE.Vector3();
+        camera.getWorldDirection(direction);
+
+        if (keys['w']) {
+            camera.position.addScaledVector(direction, this.moveSpeed);
+        }
+        if (keys['s']) {
+            camera.position.addScaledVector(direction, -this.moveSpeed);
+        }
+
+        const right = new THREE.Vector3();
+        camera.getWorldDirection(right);
+        right.cross(new THREE.Vector3(0, 1, 0));
+        right.normalize();
+
+        if (keys['a']) {
+            camera.position.addScaledVector(right, -this.moveSpeed);
+        }
+        if (keys['d']) {
+            camera.position.addScaledVector(right, this.moveSpeed);
+        }
+
+        // Keep the camera roll locked
+        camera.up.set(0, 1, 0);
+        camera.lookAt(camera.position.clone().add(direction));
     }
-};
-const handleMouseMove = (e) => {
-    if (isRightMouseDown) {
-        const deltaX = e.clientX - lastMouseX;
-        const deltaY = e.clientY - lastMouseY;
 
-        camera.rotation.y -= deltaX / 1000;
-        camera.rotation.x -= deltaY / 1000;
-
-        lastMouseX = e.clientX;
-        lastMouseY = e.clientY;
+    handleKeyDown(e) {
+        keys[e.key] = true;
     }
-};
-const handleWheel = (e) => {
-    if (e.deltaY < 0) {
-        moveSpeed += 0.1;
-    } else {
-        moveSpeed = Math.max(0.1, moveSpeed - 0.1);
+
+    handleKeyUp(e) {
+        keys[e.key] = false;
     }
-};
 
-const enableEditorMode = () => {
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('wheel', handleWheel);
-};
+    handleMouseDown(e) {
+        if (e.button === 2) {
+            isRightMouseDown = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        }
+    }
 
-const disableEditorMode = () => {
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
-    document.removeEventListener('mousedown', handleMouseDown);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('wheel', handleWheel);
-};
+    handleMouseUp(e) {
+        if (e.button === 2) {
+            isRightMouseDown = false;
+        }
+    }
+
+    handleMouseMove(e) {
+        if (isRightMouseDown) {
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
+
+            camera.rotation.y -= deltaX / 1000;
+            camera.rotation.x -= deltaY / 1000;
+
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        }
+    }
+
+    handleWheel(e) {
+        if (e.deltaY < 0) {
+            this.moveSpeed += 0.1;
+        } else {
+            this.moveSpeed = Math.max(0.1, this.moveSpeed - 0.1);
+        }
+    }
+
+    enable() {
+        document.addEventListener('keydown', this.handleKeyDown);
+        document.addEventListener('keyup', this.handleKeyUp);
+        document.addEventListener('mousedown', this.handleMouseDown);
+        document.addEventListener('mouseup', this.handleMouseUp);
+        document.addEventListener('mousemove', this.handleMouseMove);
+        document.addEventListener('wheel', this.handleWheel);
+        document.addEventListener('updateEntities', this.updateCameraPosition);
+    }
+
+    disable() {
+        document.removeEventListener('keydown', this.handleKeyDown);
+        document.removeEventListener('keyup', this.handleKeyUp);
+        document.removeEventListener('mousedown', this.handleMouseDown);
+        document.removeEventListener('mouseup', this.handleMouseUp);
+        document.removeEventListener('mousemove', this.handleMouseMove);
+        document.removeEventListener('wheel', this.handleWheel);
+        document.removeEventListener('updateEntities', this.updateCameraPosition);
+    }
+}
+
+class PlayerMode {
+    playerCube = null;
+    playerLine = null;
+
+    constructor() {
+        this.moveSpeed = 0.1;
+        this.turnSpeed = 0.05;
+        this.handleKeyDown = this.handleKeyDown.bind(this);
+        this.handleKeyUp = this.handleKeyUp.bind(this);
+        this.updatePlayerPosition = this.updatePlayerPosition.bind(this);
+    }
+
+    handleKeyDown(e) {
+        keys[e.key] = true;
+    }
+
+    handleKeyUp(e) {
+        keys[e.key] = false;
+    }
+
+    updatePlayerPosition() {
+        if (!this.playerCube) return;
+
+        const direction = new THREE.Vector3();
+        this.playerCube.getWorldDirection(direction);
+
+        if (keys['w']) {
+            this.playerCube.position.addScaledVector(direction, this.moveSpeed);
+        }
+        if (keys['s']) {
+            this.playerCube.position.addScaledVector(direction, -this.moveSpeed);
+        }
+
+        const right = new THREE.Vector3();
+        this.playerCube.getWorldDirection(right);
+        right.cross(new THREE.Vector3(0, 1, 0));
+        right.normalize();
+
+        if (keys['a']) {
+            this.playerCube.position.addScaledVector(right, -this.moveSpeed);
+        }
+        if (keys['d']) {
+            this.playerCube.position.addScaledVector(right, this.moveSpeed);
+        }
+        if (keys['q']) {
+            this.playerCube.rotation.y += this.turnSpeed;
+        }
+        if (keys['e']) {
+            this.playerCube.rotation.y -= this.turnSpeed;
+        }
+
+        // Update player line to always shoot from player position + 1 unit in front
+        const shootDirection = new THREE.Vector3();
+        this.playerCube.getWorldDirection(shootDirection);
+        shootDirection.normalize();
+        const shootPosition = this.playerCube.position.clone().add(shootDirection);
+        this.playerLine.geometry.setPositions( [
+            this.playerCube.position.x, this.playerCube.position.y, this.playerCube.position.z,
+            shootPosition.x, shootPosition.y, shootPosition.z,
+            this.playerCube.position.x, this.playerCube.position.y, this.playerCube.position.z
+        ] );
+    }
+
+    enable() {
+        const playerCell = levelData.reduce((acc, row, rowIndex) => {
+            if (acc) return acc;
+            const colIndex = row.indexOf('S');
+            if (colIndex !== -1) {
+                return { rowIndex, colIndex };
+            }
+            return null;
+        }, null);
+        if (!playerCell) {
+            console.error('No player cell found');
+            return;
+        }
+
+        const x = playerCell.colIndex - levelData[0].length / 2;
+        const y = playerCell.rowIndex - levelData.length / 2;
+        this.playerCube = spawnCube(x, y, Colors.PLAYER);
+        this.playerCube.rotation.y = Math.PI;
+
+        this.playerLine = new Line2();
+        this.playerLine.material.color.set( 0xffffff );
+        this.playerLine.material.linewidth = 10;
+        scene.add( this.playerLine );
+
+        document.addEventListener('keydown', this.handleKeyDown);
+        document.addEventListener('keyup', this.handleKeyUp);
+        document.addEventListener('updateEntities', this.updatePlayerPosition);
+    }
+
+    disable() {
+        scene.remove(this.playerCube);
+        this.playerCube = null;
+        document.removeEventListener('keydown', this.handleKeyDown);
+        document.removeEventListener('keyup', this.handleKeyUp);
+        document.removeEventListener('updateEntities', this.updatePlayerPosition);
+    }
+}
+
+const playerMode = new PlayerMode();
+const editorMode = new EditorMode();
 
 checkbox.addEventListener('change', (e) => {
     if (e.target.checked) {
-        disableEditorMode();
-        enablePlayerMode();
+        editorMode.disable();
+        playerMode.enable();
     } else {
-        disablePlayerMode();
-        enableEditorMode();
+        playerMode.disable();
+        editorMode.enable();
     }
 });
-
-const movePlayer = () => {
-    if (!playerCube) return;
-
-    const moveDistance = 0.1;
-    if (keys['w']) playerCube.position.z -= moveDistance;
-    if (keys['s']) playerCube.position.z += moveDistance;
-    if (keys['a']) playerCube.position.x -= moveDistance;
-    if (keys['d']) playerCube.position.x += moveDistance;
-};
-
-const enablePlayerMode = () => {
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-};
-
-const disablePlayerMode = () => {
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
-}
-
-enableEditorMode();
 
 const Colors = {
     FLOOR: { color: 0x333333, size: 1.0 },
@@ -125,9 +264,10 @@ document.body.appendChild( renderer.domElement );
     scene.add( cube );
 }
 // generate level
+let levelData = [];
 const levelPath = 'static/level/0.lvl';
 loader.load(levelPath, (data) => {
-    const levelData = data.split('\n');
+    levelData = data.split('\n');
     levelData.forEach((row, rowIndex) => {
         row.split('').forEach((cell, colIndex) => {
             const x = colIndex - levelData[0].length / 2;
@@ -148,22 +288,6 @@ loader.load(levelPath, (data) => {
             }
         });
     });
-
-    // add player
-    // pick any `S` cell
-    const playerCell = levelData.reduce((acc, row, rowIndex) => {
-        if (acc) return acc;
-        const colIndex = row.indexOf('S');
-        if (colIndex !== -1) {
-            return { rowIndex, colIndex };
-        }
-        return null;
-    }, null);
-    if (playerCell) {
-        const x = playerCell.colIndex - levelData[0].length / 2;
-        const y = playerCell.rowIndex - levelData.length / 2;
-        spawnCube(x, y, Colors.PLAYER);
-    }
 });
 
 const spawnCube = (x, y, object) => {
@@ -172,35 +296,7 @@ const spawnCube = (x, y, object) => {
     const cube = new THREE.Mesh(geometry, material);
     cube.position.set(x, 0.5, y);
     scene.add(cube);
-};
-
-// move camera with wasd and mouse if right click is held
-const updateCameraPosition = () => {
-    const direction = new THREE.Vector3();
-    camera.getWorldDirection(direction);
-
-    if (keys['w']) {
-        camera.position.addScaledVector(direction, moveSpeed);
-    }
-    if (keys['s']) {
-        camera.position.addScaledVector(direction, -moveSpeed);
-    }
-
-    const right = new THREE.Vector3();
-    camera.getWorldDirection(right);
-    right.cross(new THREE.Vector3(0, 1, 0));
-    right.normalize();
-
-    if (keys['a']) {
-        camera.position.addScaledVector(right, -moveSpeed);
-    }
-    if (keys['d']) {
-        camera.position.addScaledVector(right, moveSpeed);
-    }
-
-    // Keep the camera roll locked
-    camera.up.set(0, 1, 0);
-    camera.lookAt(camera.position.clone().add(direction));
+    return cube;
 };
 
 // disable rightclick context menu
@@ -211,18 +307,16 @@ camera.position.y = 233;
 camera.rotation.x = -Math.PI / 2.5;
 
 // listen to mose wheel and change camera rotation z
-let moveSpeed = 1;
 
-document.addEventListener('wheel', (e) => {
-    if (e.deltaY < 0) {
-        moveSpeed += 0.1;
-    } else {
-        moveSpeed = Math.max(0.1, moveSpeed - 0.1);
-    }
-});
-
-function animate() {
-    updateCameraPosition();
-    renderer.render( scene, camera );
+function gameLoop() {
+    const readInputEvent = new Event('readInput');
+    document.dispatchEvent(readInputEvent);
+    const updateEntities = new Event('updateEntities');
+    document.dispatchEvent(updateEntities);
+    
+    renderer.render(scene, camera);
 }
-renderer.setAnimationLoop( animate );
+
+const changeEvent = new Event('change');
+checkbox.dispatchEvent(changeEvent);
+renderer.setAnimationLoop( gameLoop );
