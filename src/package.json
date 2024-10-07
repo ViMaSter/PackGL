@@ -17,6 +17,7 @@
   "homepage": "https://github.com/ViMaSter/PackGL#readme",
   "description": "",
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.14.0",
     "stats-gl": "^2.2.8",
     "three": "^0.169.0"
   },
