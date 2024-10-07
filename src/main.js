@@ -164,16 +164,16 @@ class PlayerMode {
         right.cross(new THREE.Vector3(0, 1, 0));
         right.normalize();
 
-        if (keys['a']) {
+        if (keys['q']) {
             this.playerCube.position.addScaledVector(right, -this.moveSpeed);
         }
-        if (keys['d']) {
+        if (keys['e']) {
             this.playerCube.position.addScaledVector(right, this.moveSpeed);
         }
-        if (keys['q']) {
+        if (keys['a']) {
             this.playerCube.rotation.y += this.turnSpeed;
         }
-        if (keys['e']) {
+        if (keys['d']) {
             this.playerCube.rotation.y -= this.turnSpeed;
         }
 
@@ -187,6 +187,7 @@ class PlayerMode {
             shootPosition.x, shootPosition.y, shootPosition.z,
             this.playerCube.position.x, this.playerCube.position.y, this.playerCube.position.z
         ] );
+        this.playerLight.position.set(this.playerCube.position.x, this.playerCube.position.y, this.playerCube.position.z);
     }
 
     enable() {
@@ -205,6 +206,10 @@ class PlayerMode {
 
         const x = playerCell.colIndex - levelData[0].length / 2;
         const y = playerCell.rowIndex - levelData.length / 2;
+        this.playerLight = new THREE.PointLight( 0xffffff, 1000, 100 );
+        this.playerLight.position.set(x, 1, y);
+        scene.add( this.playerLight );
+
         this.playerCube = spawnCube(x, y, Colors.PLAYER);
         this.playerCube.rotation.y = Math.PI;
 
@@ -259,10 +264,25 @@ document.body.appendChild( renderer.domElement );
 // add floor
 {
     const geometry = new THREE.BoxGeometry( 38, 1, 38 );
-    const material = new THREE.MeshBasicMaterial( { color: Colors.FLOOR.color } );
+    const material = new THREE.MeshStandardMaterial( { color: Colors.FLOOR.color } );
     const cube = new THREE.Mesh( geometry, material );
     scene.add( cube );
 }
+// add light
+{
+    const light = new THREE.AmbientLight( 0x404040 ); // soft white light
+    scene.add( light );
+}
+// add pointlight
+{
+    const spotLight = new THREE.PointLight( 0xffffff, 500, 100 );
+    spotLight.castShadow = true;
+    spotLight.position.set( 0, 25, 0 );
+    scene.add( spotLight );
+    const spotLightHelper = new THREE.PointLightHelper( spotLight, 1 );
+    scene.add( spotLightHelper );
+}
+
 // generate level
 let levelData = [];
 const levelPath = 'static/level/0.lvl';
@@ -292,7 +312,7 @@ loader.load(levelPath, (data) => {
 
 const spawnCube = (x, y, object) => {
     const geometry = new THREE.BoxGeometry(object.size, object.size, object.size);
-    const material = new THREE.MeshBasicMaterial({ color: object.color });
+    const material = new THREE.MeshStandardMaterial({ color: object.color });
     const cube = new THREE.Mesh(geometry, material);
     cube.position.set(x, 0.5, y);
     scene.add(cube);
