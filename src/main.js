@@ -9,12 +9,12 @@ const world = new RAPIER.World(gravity)
 const dynamicBodies = []
 
 // Create checkbox
-const checkbox = document.createElement('input');
-checkbox.type = 'checkbox';
-checkbox.style.position = 'absolute';
-checkbox.style.top = '10px';
-checkbox.style.right = '10px';
-document.body.appendChild(checkbox);
+const isPlayModeCheckbox = document.createElement('input');
+isPlayModeCheckbox.type = 'checkbox';
+isPlayModeCheckbox.style.position = 'absolute';
+isPlayModeCheckbox.style.top = '10px';
+isPlayModeCheckbox.style.right = '10px';
+document.body.appendChild(isPlayModeCheckbox);
 
 const keys = {};
 let isRightMouseDown = false;
@@ -56,6 +56,13 @@ class EditorMode {
             camera.position.addScaledVector(right, this.moveSpeed);
         }
 
+        if (keys[' ']) { // Space key
+            camera.position.y += this.moveSpeed;
+        }
+        if (keys['Shift']) { // Shift key
+            camera.position.y -= this.moveSpeed;
+        }
+
         // Keep the camera roll locked
         camera.up.set(0, 1, 0);
         camera.lookAt(camera.position.clone().add(direction));
@@ -84,16 +91,23 @@ class EditorMode {
     }
 
     handleMouseMove(e) {
-        if (isRightMouseDown) {
-            const deltaX = e.clientX - lastMouseX;
-            const deltaY = e.clientY - lastMouseY;
-
-            camera.rotation.y -= deltaX / 1000;
-            camera.rotation.x -= deltaY / 1000;
-
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
+        if (!isRightMouseDown) {
+            return;
         }
+
+        const deltaX = e.clientX - lastMouseX;
+        const deltaY = e.clientY - lastMouseY;
+
+        const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+        euler.setFromQuaternion(camera.quaternion);
+
+        euler.y -= deltaX / 1000;
+        euler.x -= deltaY / 1000;
+
+        camera.quaternion.setFromEuler(euler);
+
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
     }
 
     handleWheel(e) {
@@ -257,14 +271,15 @@ class PlayerMode {
 const playerMode = new PlayerMode();
 const editorMode = new EditorMode();
 
-checkbox.addEventListener('change', (e) => {
+isPlayModeCheckbox.addEventListener('change', (e) => {
     if (e.target.checked) {
         editorMode.disable();
         playerMode.enable();
-    } else {
-        playerMode.disable();
-        editorMode.enable();
+        return;
     }
+    
+    playerMode.disable();
+    editorMode.enable();
 });
 
 const Colors = {
@@ -340,6 +355,11 @@ class LevelGenerator {
                     case '2':
                         this.spawnCube(x, y, Colors.TRASH2, CubeTypes.DYNAMIC);
                         break;
+                    case ' ':
+                    case 'S':
+                        break;
+                    default:
+                        throw new Error(`Unknown cell type: ${cell}`);
                 }
             });
         });
@@ -359,8 +379,8 @@ class LevelGenerator {
     static spawnCube(x, y, object, cubeType) {
         const cube = this.spawnTrigger(x, y, object);
         const body = cubeType === CubeTypes.FIXED ? world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0.5, y)) : 
-                    cubeType === CubeTypes.DYNAMIC ? world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 0.5, y)) : 
-                    cubeType === CubeTypes.PLAYER ? world.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(x, 0.5, y)) : null;
+                     cubeType === CubeTypes.DYNAMIC ? world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 0.5, y)) : 
+                     cubeType === CubeTypes.PLAYER ? world.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(x, 0.5, y)) : null;
 
         const shape = RAPIER.ColliderDesc.cuboid(object.size / 2, object.size / 2, object.size / 2)
         const collider = world.createCollider(shape, body)
@@ -377,7 +397,6 @@ camera.position.z = 35;
 camera.position.y = 111;
 camera.rotation.x = -Math.PI / 2.5;
 
-// listen to mose wheel and change camera rotation z
 const clock = new THREE.Clock();
 let delta;
 
@@ -413,5 +432,5 @@ function gameLoop() {
 }
 
 const changeEvent = new Event('change');
-checkbox.dispatchEvent(changeEvent);
+isPlayModeCheckbox.dispatchEvent(changeEvent);
 renderer.setAnimationLoop( gameLoop );
