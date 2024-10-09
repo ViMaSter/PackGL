@@ -147,6 +147,7 @@ class EditorMode {
 class PlayerMode {
     #playerCube = null;
     #playerLine = null;
+    #attachedCube = null;
 
     constructor() {
         this.moveSpeed = 5;
@@ -158,10 +159,56 @@ class PlayerMode {
 
     handleKeyDown(e) {
         keys[e.key] = true;
+
+        if (e.key === ' ') {
+            if (this.#attachedCube) {
+                this.detachCube();
+            } else {
+                this.attachCube();
+            }
+        }
     }
 
     handleKeyUp(e) {
         keys[e.key] = false;
+    }
+
+    attachCube() {
+        let direction = new THREE.Vector3();
+        this.#playerCube.cube.getWorldDirection(direction);
+        direction.normalize();
+        // multiply by 2
+        direction = new THREE.Vector3(direction.x * 2, direction.y * 2, direction.z * 2);
+
+        const raycaster = new THREE.Raycaster(this.#playerCube.cube.position, direction);
+        raycaster.camera = camera;
+        const intersects = raycaster.intersectObjects(scene.children, true);
+
+        if (intersects.length > 0) {
+            const intersectedObject = intersects[0].object;
+            if (intersectedObject !== this.#playerCube.cube) {
+                this.#attachedCube = dynamicBodies.find(([cube]) => cube === intersectedObject);
+                if (this.#attachedCube) {
+                    this.#attachedCube = this.#attachedCube[1]; // Get the body
+                    this.#attachedCube.setBodyType(RAPIER.RigidBodyType.Fixed); // Freeze physics
+
+                    // Store offset relative to player's forward direction
+                    const offset = new THREE.Vector3(
+                        this.#attachedCube.translation().x - this.#playerCube.body.translation().x,
+                        0,
+                        this.#attachedCube.translation().z - this.#playerCube.body.translation().z
+                    );
+                    this.#attachedCube.offset = offset;
+                }
+            }
+        }
+    }
+
+    detachCube() {
+        if (this.#attachedCube) {
+            this.#attachedCube.setBodyType(RAPIER.RigidBodyType.Dynamic); // Unfreeze physics
+            this.#attachedCube = null;
+        }
     }
 
     updatePlayerPosition() {
@@ -224,6 +271,25 @@ class PlayerMode {
             this.#playerCube.cube.position.x, this.#playerCube.cube.position.y, this.#playerCube.cube.position.z
         ] );
         this.playerLight.position.set(this.#playerCube.cube.position.x, this.#playerCube.cube.position.y, this.#playerCube.cube.position.z);
+
+        // Move attached cube with player
+        this.updateAttachedCube();
+    }
+
+    updateAttachedCube() {
+        if (!this.#attachedCube) return;
+
+        const direction = new THREE.Vector3();
+        this.#playerCube.cube.getWorldDirection(direction);
+        direction.normalize();
+
+        const offset = this.#attachedCube.offset;
+        const newPos = new RAPIER.Vector3(
+            this.#playerCube.body.translation().x + offset.x,
+            this.#attachedCube.translation().y,
+            this.#playerCube.body.translation().z + offset.z
+        );
+        this.#attachedCube.setTranslation(newPos);
     }
 
     enable() {
