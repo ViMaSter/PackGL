@@ -1,16 +1,12 @@
 import * as THREE from 'three';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import RAPIER from '@dimforge/rapier3d-compat'
-await RAPIER.init() // This line is only needed if using the compat version
+import { QuaternionUtilities } from './Utility.js';
+
+await RAPIER.init()
 const gravity = new RAPIER.Vector3(0.0, -9.81, 0.0)
 const world = new RAPIER.World(gravity)
 const dynamicBodies = []
-
-import Stats from 'stats-gl';
-
-const loader = new THREE.FileLoader();
-
-const editMode = true;
 
 // Create checkbox
 const checkbox = document.createElement('input');
@@ -24,17 +20,6 @@ const keys = {};
 let isRightMouseDown = false;
 let lastMouseX = 0;
 let lastMouseY = 0;
-
-class QuaternionUtilities {
-    static multiplyQuaternion(q1, q2) {
-        return new RAPIER.Quaternion(
-            q1.x * q2.w + q1.w * q2.x + q1.y * q2.z - q1.z * q2.y,
-            q1.y * q2.w + q1.w * q2.y + q1.z * q2.x - q1.x * q2.z,
-            q1.z * q2.w + q1.w * q2.z + q1.x * q2.y - q1.y * q2.x,
-            q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
-        );
-    }
-}
 
 class EditorMode {
     constructor() {
@@ -140,28 +125,12 @@ class EditorMode {
     }
 }
 
-const RAPIERQuaternionFromEuler = (x, y, z) => {
-    const q = new RAPIER.Quaternion()
-    const c1 = Math.cos(x / 2);
-    const c2 = Math.cos(y / 2);
-    const c3 = Math.cos(z / 2);
-    const s1 = Math.sin(x / 2);
-    const s2 = Math.sin(y / 2);
-    const s3 = Math.sin(z / 2);
-
-    q.x = s1 * c2 * c3 + c1 * s2 * s3;
-    q.y = c1 * s2 * c3 - s1 * c2 * s3;
-    q.z = c1 * c2 * s3 + s1 * s2 * c3;
-    q.w = c1 * c2 * c3 - s1 * s2 * s3;
-    return q
-};
-
 class PlayerMode {
     playerCube = null;
     playerLine = null;
 
     constructor() {
-        this.moveSpeed = 10;
+        this.moveSpeed = 5;
         this.turnSpeed = 5;
         this.handleKeyDown = this.handleKeyDown.bind(this);
         this.handleKeyUp = this.handleKeyUp.bind(this);
@@ -182,16 +151,14 @@ class PlayerMode {
         const direction = new THREE.Vector3();
         this.playerCube.cube.getWorldDirection(direction);
 
-        let newPos = this.playerCube.body.translation();
+        let newPos = {x: 0, y: 0, z: 0};
         let newRot = this.playerCube.body.rotation();
 
         if (keys['w']) {
-            //this.playerCube.cube.position.addScaledVector(direction, this.moveSpeed);
             newPos.x += direction.x * this.moveSpeed * delta;
             newPos.z += direction.z * this.moveSpeed * delta;
         }
         if (keys['s']) {
-            //this.playerCube.cube.position.addScaledVector(direction, -this.moveSpeed);
             newPos.x += direction.x * -this.moveSpeed * delta;
             newPos.z += direction.z * -this.moveSpeed * delta;
         }
@@ -202,27 +169,30 @@ class PlayerMode {
             right.normalize();
 
             if (keys['q']) {
-                //this.playerCube.cube.position.addScaledVector(right, -this.moveSpeed);
                 newPos.x += right.x * -this.moveSpeed * delta;
                 newPos.z += right.z * -this.moveSpeed * delta;
             }
             if (keys['e']) {
-                //this.playerCube.cube.position.addScaledVector(right, this.moveSpeed);
                 newPos.x += right.x * this.moveSpeed * delta;
                 newPos.z += right.z * this.moveSpeed * delta;
             }
             if (keys['a']) {
-                const q = RAPIERQuaternionFromEuler(0, this.turnSpeed * delta, 0);
+                const q = QuaternionUtilities.quaternionFromEuler(0, this.turnSpeed * delta, 0);
                 newRot = QuaternionUtilities.multiplyQuaternion(newRot, q);
             }
             if (keys['d']) {
-                const q = RAPIERQuaternionFromEuler(0, -this.turnSpeed * delta, 0);
+                const q = QuaternionUtilities.quaternionFromEuler(0, -this.turnSpeed * delta, 0);
                 newRot = QuaternionUtilities.multiplyQuaternion(newRot, q);
             }
         }
 
-        this.playerCube.body.setNextKinematicTranslation(newPos)
-        this.playerCube.body.setNextKinematicRotation(newRot);
+        this.characterController.computeColliderMovement(this.playerCube.collider, newPos);
+        let correctedMovement = this.characterController.computedMovement();
+
+        this.playerCube.body.setLinvel(new RAPIER.Vector3(correctedMovement.x / delta, correctedMovement.y / delta, correctedMovement.z / delta));
+        this.playerCube.body.setTranslation(new RAPIER.Vector3(this.playerCube.body.translation().x, 0.5, this.playerCube.body.translation().z));
+        this.playerCube.body.setRotation(newRot);
+        console.log(`X: ${this.playerCube.body.translation().x}, Y: ${this.playerCube.body.translation().y}, Z: ${this.playerCube.body.translation().z}`);
 
 
         // Update player line to always shoot from player position + 1 unit in front
@@ -258,9 +228,10 @@ class PlayerMode {
         this.playerLight.position.set(x, 1, y);
         scene.add( this.playerLight );
 
-        this.playerCube = spawnCube(x, y, Colors.PLAYER, CubeTypes.PLAYER);
+        this.playerCube = LevelGenerator.spawnCube(x, y, Colors.PLAYER, CubeTypes.PLAYER);
         this.characterController = world.createCharacterController(0.01);
-        this.playerCube.body.setRotation(RAPIERQuaternionFromEuler(0, Math.PI, 0))
+        this.characterController.setApplyImpulsesToDynamicBodies(true);
+        this.playerCube.body.setRotation(QuaternionUtilities.quaternionFromEuler(0, Math.PI, 0))
 
         this.playerLine = new Line2();
         this.playerLine.material.color.set( 0xffffff );
@@ -273,9 +244,9 @@ class PlayerMode {
     }
 
     disable() {
-        // scene.remove(this.playerCube);
-        // scene.remove(this.playerLine);
-        // scene.remove(this.playerLight);
+        scene.remove(this.playerCube);
+        scene.remove(this.playerLine);
+        scene.remove(this.playerLight);
         this.playerCube = null;
         document.removeEventListener('keydown', this.handleKeyDown);
         document.removeEventListener('keyup', this.handleKeyUp);
@@ -319,87 +290,96 @@ const renderer = new THREE.WebGLRenderer();
 renderer.setSize( window.innerWidth, window.innerHeight );
 document.body.appendChild( renderer.domElement );
 
-// add floor
-{
-    const geometry = new THREE.BoxGeometry( 38, 0, 38 );
-    const material = new THREE.MeshStandardMaterial( { color: Colors.FLOOR.color } );
-    const cube = new THREE.Mesh( geometry, material );
-    scene.add( cube );
+class LevelGenerator {
+    static addBasics() {
+        // floor 
+        const geometry = new THREE.BoxGeometry( 38, 0, 38 );
+        const material = new THREE.MeshStandardMaterial( { color: Colors.FLOOR.color } );
+        const cube = new THREE.Mesh( geometry, material );
+        scene.add( cube );
 
-    // physics
-    const floorBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0.0, -0.5, 0.0))
-    const floorShape = RAPIER.ColliderDesc.cuboid(19.0, 0.5, 19.0)
-    world.createCollider(floorShape, floorBody)
-}
-// add light
-{
-    const light = new THREE.AmbientLight( 0x404040 ); // soft white light
-    scene.add( light );
-}
-// add pointlight
-{
-    const spotLight = new THREE.PointLight( 0xffffff, 500, 100 );
-    spotLight.castShadow = true;
-    spotLight.position.set( 0, 25, 0 );
-    scene.add( spotLight );
-    const spotLightHelper = new THREE.PointLightHelper( spotLight, 1 );
-    scene.add( spotLightHelper );
-}
+        // physics
+        const floorBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0.0, -0.5, 0.0))
+        const floorShape = RAPIER.ColliderDesc.cuboid(19.0, 0.5, 19.0)
+        world.createCollider(floorShape, floorBody)
 
-// generate level
-let levelData = [];
-const levelPath = 'static/level/0.lvl';
-loader.load(levelPath, (data) => {
-    levelData = data.split('\n');
-    levelData.forEach((row, rowIndex) => {
-        row.split('').forEach((cell, colIndex) => {
-            const x = colIndex - levelData[0].length / 2;
-            const y = rowIndex - levelData.length / 2;
-            switch (cell) {
-                case 'W':
-                    spawnCube(x, y, Colors.WALL, CubeTypes.FIXED);
-                    break;
-                case 'G':
-                    spawnCube(x, y, Colors.GOAL, CubeTypes.NONE);
-                    break;
-                case '1':
-                    spawnCube(x, y, Colors.TRASH1, CubeTypes.DYNAMIC);
-                    break;
-                case '2':
-                    spawnCube(x, y, Colors.TRASH2, CubeTypes.DYNAMIC);
-                    break;
-            }
+        // ambient light
+        const light = new THREE.AmbientLight( 0x404040 ); // soft white light
+        scene.add( light );
+
+        // point light
+        const spotLight = new THREE.PointLight( 0xffffff, 500, 100 );
+        spotLight.castShadow = true;
+        spotLight.position.set( 0, 25, 0 );
+        scene.add( spotLight );
+        const spotLightHelper = new THREE.PointLightHelper( spotLight, 1 );
+        scene.add( spotLightHelper );
+    }
+
+    static async loadLevel(levelPath) {
+        const loader = new THREE.FileLoader();
+        const data = await new Promise((resolve, reject) => {
+            loader.load(levelPath, resolve, undefined, reject);
         });
-    });
-});
 
-const spawnCube = (x, y, object, cubeType) => {
-    const geometry = new THREE.BoxGeometry(object.size, object.size, object.size);
-    const material = new THREE.MeshStandardMaterial({ color: object.color });
-    const cube = new THREE.Mesh(geometry, material);
-    cube.position.set(x, 1, y);
-    scene.add(cube);
-    const body = cubeType === CubeTypes.FIXED ? world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0.5, y)) : 
-                 cubeType === CubeTypes.DYNAMIC ? world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 0.5, y)) : 
-                 cubeType === CubeTypes.PLAYER ? world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(x, 1, y)) :
-                 null;
-    const shape = RAPIER.ColliderDesc.cuboid(object.size / 2, object.size / 2, object.size / 2)
-    const collider = world.createCollider(shape, body)
-    dynamicBodies.push([cube, body, collider])
-    return {cube, body, collider};
-};
+        const levelData = data.split('\n');
+        levelData.forEach((row, rowIndex) => {
+            row.split('').forEach((cell, colIndex) => {
+                const x = colIndex - levelData[0].length / 2;
+                const y = rowIndex - levelData.length / 2;
+                switch (cell) {
+                    case 'W':
+                        this.spawnCube(x, y, Colors.WALL, CubeTypes.FIXED);
+                        break;
+                    case 'G':
+                        this.spawnTrigger(x, y, Colors.GOAL);
+                        break;
+                    case '1':
+                        this.spawnCube(x, y, Colors.TRASH1, CubeTypes.DYNAMIC);
+                        break;
+                    case '2':
+                        this.spawnCube(x, y, Colors.TRASH2, CubeTypes.DYNAMIC);
+                        break;
+                }
+            });
+        });
 
-// disable rightclick context menu
+        return levelData;
+    }
+
+    static spawnTrigger(x, y, object) {
+        const geometry = new THREE.BoxGeometry(object.size, object.size, object.size);
+        const material = new THREE.MeshStandardMaterial({ color: object.color });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.position.set(x, 0.5, y);
+        scene.add(cube);
+        return cube;
+    };
+
+    static spawnCube(x, y, object, cubeType) {
+        const cube = this.spawnTrigger(x, y, object);
+        const body = cubeType === CubeTypes.FIXED ? world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0.5, y)) : 
+                    cubeType === CubeTypes.DYNAMIC ? world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 0.5, y)) : 
+                    cubeType === CubeTypes.PLAYER ? world.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(x, 0.5, y)) : null;
+
+        const shape = RAPIER.ColliderDesc.cuboid(object.size / 2, object.size / 2, object.size / 2)
+        const collider = world.createCollider(shape, body)
+        dynamicBodies.push([cube, body, collider])
+        return {cube, body, collider};
+    };
+}
+
+LevelGenerator.addBasics();
+const levelData = await LevelGenerator.loadLevel('static/level/0.lvl');
+
 document.addEventListener('contextmenu', (e) => e.preventDefault());
-
 camera.position.z = 35;
 camera.position.y = 111;
 camera.rotation.x = -Math.PI / 2.5;
 
 // listen to mose wheel and change camera rotation z
-
-const clock = new THREE.Clock()
-let delta
+const clock = new THREE.Clock();
+let delta;
 
 const debugGeometry = new THREE.BufferGeometry();
 const debugMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
@@ -409,6 +389,12 @@ scene.add(debugLine);
 function gameLoop() {
     delta = clock.getDelta()
     world.timestep = Math.min(delta, 0.1)
+
+    const readInputEvent = new Event('readInput');
+    document.dispatchEvent(readInputEvent);
+    const updateEntities = new Event('updateEntities');
+    document.dispatchEvent(updateEntities);
+
     world.step()
 
     for (let i = 0, n = dynamicBodies.length; i < n; i++) {
@@ -418,11 +404,6 @@ function gameLoop() {
         dynamicBodies[i][0].position.copy(dynamicBodies[i][1].translation())
         dynamicBodies[i][0].quaternion.copy(dynamicBodies[i][1].rotation())
     }
-
-    const readInputEvent = new Event('readInput');
-    document.dispatchEvent(readInputEvent);
-    const updateEntities = new Event('updateEntities');
-    document.dispatchEvent(updateEntities);
 
     const { vertices, colors } = world.debugRender();
     debugGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
