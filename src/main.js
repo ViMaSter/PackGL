@@ -22,6 +22,31 @@ const ObjectTypes = {
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera( 10, window.innerWidth / window.innerHeight, 0.1, 1000 );
 
+
+const quaternionToEuler = (q) => {
+    const euler = new THREE.Euler();
+    const ysqr = q.y * q.y;
+
+    // roll (x-axis rotation)
+    const t0 = +2.0 * (q.w * q.x + q.y * q.z);
+    const t1 = +1.0 - 2.0 * (q.x * q.x + ysqr);
+    euler.x = Math.atan2(t0, t1);
+
+    // pitch (y-axis rotation)
+    let t2 = +2.0 * (q.w * q.y - q.z * q.x);
+    t2 = t2 > 1.0 ? 1.0 : t2;
+    t2 = t2 < -1.0 ? -1.0 : t2;
+    euler.y = Math.asin(t2);
+
+    // yaw (z-axis rotation)
+    const t3 = +2.0 * (q.w * q.z + q.x * q.y);
+    const t4 = +1.0 - 2.0 * (ysqr + q.z * q.z);
+    euler.z = Math.atan2(t3, t4);
+
+    return euler;
+}
+
+
 class EditorMode {
     #isRightMouseDown = false
     #lastMouseX = 0;
@@ -194,11 +219,18 @@ class PlayerMode {
 
                     // Store offset relative to player's forward direction
                     const offset = new THREE.Vector3(
-                        this.#attachedCube.translation().x - this.#playerCube.body.translation().x,
-                        0,
-                        this.#attachedCube.translation().z - this.#playerCube.body.translation().z
+                        this.#playerCube.body.translation().x - this.#attachedCube.translation().x,
+                        this.#playerCube.body.translation().y - this.#attachedCube.translation().y,
+                        this.#playerCube.body.translation().z - this.#attachedCube.translation().z
                     );
-                    this.#attachedCube.offset = offset;
+                    // project onto forward direction of player
+                    this.#attachedCube.offset = offset.projectOnVector(direction);
+                    // Store the y euler rotation of the player and attached cube
+                    const playerEulerInRads = quaternionToEuler(this.#playerCube.body.rotation());
+                    const attachedEulerInRads = quaternionToEuler(this.#attachedCube.rotation());
+                    console.log({offset: this.#attachedCube.offset})
+                    this.#attachedCube.playerRotationYInRads = playerEulerInRads.y;
+                    this.#attachedCube.attachedRotationYInRads = attachedEulerInRads.y;
                 }
             }
         }
@@ -228,6 +260,7 @@ class PlayerMode {
             newPos.x += direction.x * -this.moveSpeed * delta;
             newPos.z += direction.z * -this.moveSpeed * delta;
         }
+        let rotationThisFrame = null;
         {
             const right = new THREE.Vector3();
             this.#playerCube.cube.getWorldDirection(right);
@@ -243,11 +276,13 @@ class PlayerMode {
                 newPos.z += right.z * this.moveSpeed * delta;
             }
             if (keys['a']) {
-                const q = QuaternionUtilities.quaternionFromEuler(0, this.turnSpeed * delta, 0);
+                rotationThisFrame = this.turnSpeed * delta;
+                const q = QuaternionUtilities.quaternionFromEuler(0, rotationThisFrame, 0);
                 newRot = QuaternionUtilities.multiplyQuaternion(newRot, q);
             }
             if (keys['d']) {
-                const q = QuaternionUtilities.quaternionFromEuler(0, -this.turnSpeed * delta, 0);
+                rotationThisFrame = -this.turnSpeed * delta;
+                const q = QuaternionUtilities.quaternionFromEuler(0, rotationThisFrame, 0);
                 newRot = QuaternionUtilities.multiplyQuaternion(newRot, q);
             }
         }
@@ -258,7 +293,6 @@ class PlayerMode {
         this.#playerCube.body.setLinvel(new RAPIER.Vector3(correctedMovement.x / delta, correctedMovement.y / delta, correctedMovement.z / delta));
         this.#playerCube.body.setTranslation(new RAPIER.Vector3(this.#playerCube.body.translation().x, 0.5, this.#playerCube.body.translation().z));
         this.#playerCube.body.setRotation(newRot);
-        console.log(`X: ${this.#playerCube.body.translation().x}, Y: ${this.#playerCube.body.translation().y}, Z: ${this.#playerCube.body.translation().z}`);
 
         // Update player line to always shoot from player position + 1 unit in front
         const shootDirection = new THREE.Vector3();
@@ -273,10 +307,10 @@ class PlayerMode {
         this.playerLight.position.set(this.#playerCube.cube.position.x, this.#playerCube.cube.position.y, this.#playerCube.cube.position.z);
 
         // Move attached cube with player
-        this.updateAttachedCube();
+        this.updateAttachedCube(rotationThisFrame);
     }
 
-    updateAttachedCube() {
+    updateAttachedCube(eulerRotation) {
         if (!this.#attachedCube) return;
 
         const direction = new THREE.Vector3();
@@ -284,12 +318,25 @@ class PlayerMode {
         direction.normalize();
 
         const offset = this.#attachedCube.offset;
-        const newPos = new RAPIER.Vector3(
-            this.#playerCube.body.translation().x + offset.x,
-            this.#attachedCube.translation().y,
-            this.#playerCube.body.translation().z + offset.z
+        // project offsedt onto forward
+        const offsetProjected = new THREE.Vector3(
+            direction.x * offset.x,
+            direction.y * offset.y,
+            direction.z * offset.z
         );
+
+        const newPos = new RAPIER.Vector3(
+            this.#playerCube.body.translation().x + offsetProjected.x,
+            this.#playerCube.body.translation().y + offsetProjected.y,
+            this.#playerCube.body.translation().z + offsetProjected.z
+        );
+
         this.#attachedCube.setTranslation(newPos);
+
+        const rotationOffset = QuaternionUtilities.quaternionFromEuler(0, eulerRotation, 0)
+        let newRot = this.#attachedCube.rotation();
+        newRot = QuaternionUtilities.multiplyQuaternion(newRot, rotationOffset);
+        this.#attachedCube.setRotation(newRot);
     }
 
     enable() {
