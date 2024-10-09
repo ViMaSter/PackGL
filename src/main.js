@@ -25,6 +25,17 @@ let isRightMouseDown = false;
 let lastMouseX = 0;
 let lastMouseY = 0;
 
+class QuaternionUtilities {
+    static multiplyQuaternion(q1, q2) {
+        return new RAPIER.Quaternion(
+            q1.x * q2.w + q1.w * q2.x + q1.y * q2.z - q1.z * q2.y,
+            q1.y * q2.w + q1.w * q2.y + q1.z * q2.x - q1.x * q2.z,
+            q1.z * q2.w + q1.w * q2.z + q1.x * q2.y - q1.y * q2.x,
+            q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z
+        );
+    }
+}
+
 class EditorMode {
     constructor() {
         this.moveSpeed = 1;
@@ -202,21 +213,11 @@ class PlayerMode {
             }
             if (keys['a']) {
                 const q = RAPIERQuaternionFromEuler(0, this.turnSpeed * delta, 0);
-                newRot = new RAPIER.Quaternion(
-                newRot.x * q.w + newRot.w * q.x + newRot.y * q.z - newRot.z * q.y,
-                newRot.y * q.w + newRot.w * q.y + newRot.z * q.x - newRot.x * q.z,
-                newRot.z * q.w + newRot.w * q.z + newRot.x * q.y - newRot.y * q.x,
-                newRot.w * q.w - newRot.x * q.x - newRot.y * q.y - newRot.z * q.z
-                );
+                newRot = QuaternionUtilities.multiplyQuaternion(newRot, q);
             }
             if (keys['d']) {
                 const q = RAPIERQuaternionFromEuler(0, -this.turnSpeed * delta, 0);
-                newRot = new RAPIER.Quaternion(
-                newRot.x * q.w + newRot.w * q.x + newRot.y * q.z - newRot.z * q.y,
-                newRot.y * q.w + newRot.w * q.y + newRot.z * q.x - newRot.x * q.z,
-                newRot.z * q.w + newRot.w * q.z + newRot.x * q.y - newRot.y * q.x,
-                newRot.w * q.w - newRot.x * q.x - newRot.y * q.y - newRot.z * q.z
-                );
+                newRot = QuaternionUtilities.multiplyQuaternion(newRot, q);
             }
         }
 
