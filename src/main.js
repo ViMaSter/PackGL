@@ -11,12 +11,12 @@ const dynamicBodies = []
 const keys = {};
 
 const ObjectTypes = {
-    FLOOR: { color: 0x333333, type: RAPIER.RigidBodyDesc.fixed },
-    WALL: { color: 0xFFFFFF, type: RAPIER.RigidBodyDesc.fixed },
-    GOAL: { color: 0x00ff00, type: null },
-    TRASH1: { color: 0xff0000, type: RAPIER.RigidBodyDesc.dynamic },
-    TRASH2: { color: 0xffa500, type: RAPIER.RigidBodyDesc.dynamic },
-    PLAYER: { color: 0x0000ff, type: RAPIER.RigidBodyDesc.kinematicVelocityBased },
+    FLOOR: { color: 0x333333, type: RAPIER.RigidBodyDesc.fixed, mass: 1 },
+    WALL: { color: 0xFFFFFF, type: RAPIER.RigidBodyDesc.fixed, mass: 1 },
+    GOAL: { color: 0x00ff00, type: null, mass: 1 },
+    TRASH1: { color: 0xff0000, type: RAPIER.RigidBodyDesc.dynamic, mass: 1000 },
+    TRASH2: { color: 0xffa500, type: RAPIER.RigidBodyDesc.dynamic, mass: 1000 },
+    PLAYER: { color: 0x0000ff, type: RAPIER.RigidBodyDesc.kinematicVelocityBased, mass: 1 },
 };
 
 const scene = new THREE.Scene();
@@ -217,14 +217,21 @@ class PlayerMode {
                     this.#attachedCube = this.#attachedCube[1]; // Get the body
                     this.#attachedCube.setBodyType(RAPIER.RigidBodyType.Fixed); // Freeze physics
 
-                    // Store offset relative to player's forward direction
-                    const offset = new THREE.Vector3(
-                        this.#playerCube.body.translation().x - this.#attachedCube.translation().x,
-                        this.#playerCube.body.translation().y - this.#attachedCube.translation().y,
-                        this.#playerCube.body.translation().z - this.#attachedCube.translation().z
+                    // Store offset relative to player's position in local space
+                    const playerPosition = new THREE.Vector3(
+                        this.#playerCube.body.translation().x,
+                        this.#playerCube.body.translation().y,
+                        this.#playerCube.body.translation().z
                     );
-                    // project onto forward direction of player
-                    this.#attachedCube.offset = offset.projectOnVector(direction);
+                    const attachedPosition = new THREE.Vector3(
+                        this.#attachedCube.translation().x,
+                        this.#attachedCube.translation().y,
+                        this.#attachedCube.translation().z
+                    );
+                    const rapierQuat = this.#playerCube.body.rotation();
+                    const threeQuat = new THREE.Quaternion(rapierQuat.x, rapierQuat.y, rapierQuat.z, rapierQuat.w);
+                    const offset = attachedPosition.sub(playerPosition).applyQuaternion(threeQuat.conjugate());
+                    this.#attachedCube.offset = offset;
                     // Store the y euler rotation of the player and attached cube
                     const playerEulerInRads = quaternionToEuler(this.#playerCube.body.rotation());
                     const attachedEulerInRads = quaternionToEuler(this.#attachedCube.rotation());
@@ -315,20 +322,18 @@ class PlayerMode {
 
         const direction = new THREE.Vector3();
         this.#playerCube.cube.getWorldDirection(direction);
-        direction.normalize();
 
-        const offset = this.#attachedCube.offset;
-        // project offsedt onto forward
-        const offsetProjected = new THREE.Vector3(
-            direction.x * offset.x,
-            direction.y * offset.y,
-            direction.z * offset.z
-        );
+        // project point onto direciton
+        const projectPointOntoDirection = (point, direction) => {
+            const dot = point.x * direction.x + point.y * direction.y + point.z * direction.z;
+            return new THREE.Vector3(direction.x * dot, direction.y * dot, direction.z * dot);
+        }
 
-        const newPos = new RAPIER.Vector3(
-            this.#playerCube.body.translation().x + offsetProjected.x,
-            this.#playerCube.body.translation().y + offsetProjected.y,
-            this.#playerCube.body.translation().z + offsetProjected.z
+        const offset = this.#attachedCube.offset.clone().applyQuaternion(this.#playerCube.body.rotation());
+        const newPos = new THREE.Vector3(
+            this.#playerCube.body.translation().x + offset.x,
+            this.#playerCube.body.translation().y + offset.y,
+            this.#playerCube.body.translation().z + offset.z
         );
 
         this.#attachedCube.setTranslation(newPos);
@@ -464,7 +469,7 @@ class LevelLoader {
         }
 
         const body = world.createRigidBody(object.type().setTranslation(x, 0.5, y)); 
-        const shape = RAPIER.ColliderDesc.cuboid(sizeX / 2, 1 / 2, sizeY / 2)
+        const shape = RAPIER.ColliderDesc.cuboid(sizeX / 2, 1 / 2, sizeY / 2).setDensity(object.mass);
         const collider = world.createCollider(shape, body)
         dynamicBodies.push([cube, body, collider])
 
