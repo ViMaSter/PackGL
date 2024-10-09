@@ -10,18 +10,21 @@ const dynamicBodies = []
 
 const keys = {};
 
+const trashCollisionGroup = 2;
+const attachedCollisionGroup = 3;
+
 const ObjectTypes = {
     FLOOR: { color: 0x333333, type: RAPIER.RigidBodyDesc.fixed, mass: 1 },
     WALL: { color: 0xFFFFFF, type: RAPIER.RigidBodyDesc.fixed, mass: 1 },
     GOAL: { color: 0x00ff00, type: null, mass: 1 },
-    TRASH1: { color: 0xff0000, type: RAPIER.RigidBodyDesc.dynamic, mass: 1000 },
-    TRASH2: { color: 0xffa500, type: RAPIER.RigidBodyDesc.dynamic, mass: 1000 },
+    TRASH1: { color: 0xff0000, type: RAPIER.RigidBodyDesc.dynamic, mass: 1000, customCollisionGroup: trashCollisionGroup},
+    TRASH2: { color: 0xffa500, type: RAPIER.RigidBodyDesc.dynamic, mass: 1000, customCollisionGroup: trashCollisionGroup},
     PLAYER: { color: 0x0000ff, type: RAPIER.RigidBodyDesc.kinematicVelocityBased, mass: 1 },
 };
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera( 10, window.innerWidth / window.innerHeight, 0.1, 1000 );
-
+camera.layers.enableAll();
 
 const quaternionToEuler = (q) => {
     const euler = new THREE.Euler();
@@ -207,45 +210,55 @@ class PlayerMode {
 
         const raycaster = new THREE.Raycaster(this.#playerCube.cube.position, direction);
         raycaster.camera = camera;
+        raycaster.layers.enableAll();
         const intersects = raycaster.intersectObjects(scene.children, true);
 
-        if (intersects.length > 0) {
-            const intersectedObject = intersects[0].object;
-            if (intersectedObject !== this.#playerCube.cube) {
-                this.#attachedCube = dynamicBodies.find(([cube]) => cube === intersectedObject);
-                if (this.#attachedCube) {
-                    this.#attachedCube = this.#attachedCube[1]; // Get the body
-                    this.#attachedCube.setBodyType(RAPIER.RigidBodyType.Fixed); // Freeze physics
-
-                    // Store offset relative to player's position in local space
-                    const playerPosition = new THREE.Vector3(
-                        this.#playerCube.body.translation().x,
-                        this.#playerCube.body.translation().y,
-                        this.#playerCube.body.translation().z
-                    );
-                    const attachedPosition = new THREE.Vector3(
-                        this.#attachedCube.translation().x,
-                        this.#attachedCube.translation().y,
-                        this.#attachedCube.translation().z
-                    );
-                    const rapierQuat = this.#playerCube.body.rotation();
-                    const threeQuat = new THREE.Quaternion(rapierQuat.x, rapierQuat.y, rapierQuat.z, rapierQuat.w);
-                    const offset = attachedPosition.sub(playerPosition).applyQuaternion(threeQuat.conjugate());
-                    this.#attachedCube.offset = offset;
-                    // Store the y euler rotation of the player and attached cube
-                    const playerEulerInRads = quaternionToEuler(this.#playerCube.body.rotation());
-                    const attachedEulerInRads = quaternionToEuler(this.#attachedCube.rotation());
-                    console.log({offset: this.#attachedCube.offset})
-                    this.#attachedCube.playerRotationYInRads = playerEulerInRads.y;
-                    this.#attachedCube.attachedRotationYInRads = attachedEulerInRads.y;
-                }
-            }
+        if (intersects.length === 0) {
+            return;
         }
+        const intersectedObject = intersects[0].object;
+        const layer = new THREE.Layers();
+        layer.enable(trashCollisionGroup)
+        if (!intersectedObject.layers.test(layer)) {
+            return;
+        }
+
+        this.#attachedCube = dynamicBodies.find(([cube]) => cube === intersectedObject);
+        if (!this.#attachedCube) {
+            return;
+        }
+
+        this.#attachedCube[1].setBodyType(RAPIER.RigidBodyType.Fixed); // Freeze physics
+        this.#attachedCube[2].setCollisionGroups(attachedCollisionGroup);
+
+        // Store offset relative to player's position in local space
+        const playerPosition = new THREE.Vector3(
+            this.#playerCube.body.translation().x,
+            this.#playerCube.body.translation().y,
+            this.#playerCube.body.translation().z
+        );
+        const attachedPosition = new THREE.Vector3(
+            this.#attachedCube[1].translation().x,
+            this.#attachedCube[1].translation().y,
+            this.#attachedCube[1].translation().z
+        );
+        const rapierQuat = this.#playerCube.body.rotation();
+        const threeQuat = new THREE.Quaternion(rapierQuat.x, rapierQuat.y, rapierQuat.z, rapierQuat.w);
+        const offset = attachedPosition.sub(playerPosition).applyQuaternion(threeQuat.conjugate());
+        this.#attachedCube[1].offset = offset;
+        // Store the y euler rotation of the player and attached cube
+        const playerEulerInRads = quaternionToEuler(this.#playerCube.body.rotation());
+        const attachedEulerInRads = quaternionToEuler(this.#attachedCube[1].rotation());
+        console.log({offset: this.#attachedCube[1].offset})
+        this.#attachedCube[1].playerRotationYInRads = playerEulerInRads.y;
+        this.#attachedCube[1].attachedRotationYInRads = attachedEulerInRads.y;
     }
 
     detachCube() {
         if (this.#attachedCube) {
-            this.#attachedCube.setBodyType(RAPIER.RigidBodyType.Dynamic); // Unfreeze physics
+            // enable all collisions again
+            this.#attachedCube[2].setCollisionGroups(0xFFFFFFFF);
+            this.#attachedCube[1].setBodyType(RAPIER.RigidBodyType.Dynamic); // Unfreeze physics
             this.#attachedCube = null;
         }
     }
@@ -294,7 +307,9 @@ class PlayerMode {
             }
         }
 
-        this.characterController.computeColliderMovement(this.#playerCube.collider, newPos);
+        this.characterController.computeColliderMovement(this.#playerCube.collider, newPos, null, null, (collider) => {
+            return collider.collisionGroups() != attachedCollisionGroup;
+        });
         let correctedMovement = this.characterController.computedMovement();
 
         this.#playerCube.body.setLinvel(new RAPIER.Vector3(correctedMovement.x / delta, correctedMovement.y / delta, correctedMovement.z / delta));
@@ -323,25 +338,19 @@ class PlayerMode {
         const direction = new THREE.Vector3();
         this.#playerCube.cube.getWorldDirection(direction);
 
-        // project point onto direciton
-        const projectPointOntoDirection = (point, direction) => {
-            const dot = point.x * direction.x + point.y * direction.y + point.z * direction.z;
-            return new THREE.Vector3(direction.x * dot, direction.y * dot, direction.z * dot);
-        }
-
-        const offset = this.#attachedCube.offset.clone().applyQuaternion(this.#playerCube.body.rotation());
+        const offset = this.#attachedCube[1].offset.clone().applyQuaternion(this.#playerCube.body.rotation());
         const newPos = new THREE.Vector3(
             this.#playerCube.body.translation().x + offset.x,
             this.#playerCube.body.translation().y + offset.y,
             this.#playerCube.body.translation().z + offset.z
         );
 
-        this.#attachedCube.setTranslation(newPos);
+        this.#attachedCube[1].setTranslation(newPos);
 
         const rotationOffset = QuaternionUtilities.quaternionFromEuler(0, eulerRotation, 0)
-        let newRot = this.#attachedCube.rotation();
+        let newRot = this.#attachedCube[1].rotation();
         newRot = QuaternionUtilities.multiplyQuaternion(newRot, rotationOffset);
-        this.#attachedCube.setRotation(newRot);
+        this.#attachedCube[1].setRotation(newRot);
     }
 
     enable() {
@@ -406,7 +415,7 @@ class LevelLoader {
         scene.add(light);
 
         // point light
-        const spotLight = new THREE.PointLight(0xffffff, floorSize*25, floorSize*2);
+        const spotLight = new THREE.PointLight(0xffffff, floorSize*25, floorSize*20);
         spotLight.castShadow = true;
         spotLight.position.set(0, 25, 0);
         scene.add(spotLight);
@@ -464,14 +473,22 @@ class LevelLoader {
 
     static spawnCube(x, y, sizeX, sizeY, object) {
         const cube = this.#spawnTrigger(x, y, sizeX, sizeY, object);
+        cube.name = `#${object.color.toString(16).padStart(6, '0')}`;
         if (object.type === null) {
             return cube;
         }
 
         const body = world.createRigidBody(object.type().setTranslation(x, 0.5, y)); 
         const shape = RAPIER.ColliderDesc.cuboid(sizeX / 2, 1 / 2, sizeY / 2).setDensity(object.mass);
-        const collider = world.createCollider(shape, body)
-        dynamicBodies.push([cube, body, collider])
+        const collider = world.createCollider(shape, body);
+        cube.layers.disableAll();
+        cube.layers.enable(1);
+        if (object.customCollisionGroup !== undefined) {
+            collider.setCollisionGroups(0xFFFF0000 | object.customCollisionGroup);
+            cube.layers.enable(object.customCollisionGroup);
+        }
+
+        dynamicBodies.push([cube, body, collider]);
 
         const remove = () => {
             dynamicBodies.splice(dynamicBodies.findIndex(([, b]) => b === body), 1);
