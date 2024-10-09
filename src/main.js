@@ -8,20 +8,25 @@ const gravity = new RAPIER.Vector3(0.0, -9.81, 0.0)
 const world = new RAPIER.World(gravity)
 const dynamicBodies = []
 
-// Create checkbox
-const isPlayModeCheckbox = document.createElement('input');
-isPlayModeCheckbox.type = 'checkbox';
-isPlayModeCheckbox.style.position = 'absolute';
-isPlayModeCheckbox.style.top = '10px';
-isPlayModeCheckbox.style.right = '10px';
-document.body.appendChild(isPlayModeCheckbox);
-
 const keys = {};
-let isRightMouseDown = false;
-let lastMouseX = 0;
-let lastMouseY = 0;
+
+const ObjectTypes = {
+    FLOOR: { color: 0x333333, type: RAPIER.RigidBodyDesc.fixed },
+    WALL: { color: 0xFFFFFF, type: RAPIER.RigidBodyDesc.fixed },
+    GOAL: { color: 0x00ff00, type: null },
+    TRASH1: { color: 0xff0000, type: RAPIER.RigidBodyDesc.dynamic },
+    TRASH2: { color: 0xffa500, type: RAPIER.RigidBodyDesc.dynamic },
+    PLAYER: { color: 0x0000ff, type: RAPIER.RigidBodyDesc.kinematicVelocityBased },
+};
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera( 10, window.innerWidth / window.innerHeight, 0.1, 1000 );
 
 class EditorMode {
+    #isRightMouseDown = false
+    #lastMouseX = 0;
+    #lastMouseY = 0;
+
     constructor() {
         this.moveSpeed = 1;
         this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -78,25 +83,25 @@ class EditorMode {
 
     handleMouseDown(e) {
         if (e.button === 2) {
-            isRightMouseDown = true;
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
+            this.#isRightMouseDown = true;
+            this.#lastMouseX = e.clientX;
+            this.#lastMouseY = e.clientY;
         }
     }
 
     handleMouseUp(e) {
         if (e.button === 2) {
-            isRightMouseDown = false;
+            this.#isRightMouseDown = false;
         }
     }
 
     handleMouseMove(e) {
-        if (!isRightMouseDown) {
+        if (!this.#isRightMouseDown) {
             return;
         }
 
-        const deltaX = e.clientX - lastMouseX;
-        const deltaY = e.clientY - lastMouseY;
+        const deltaX = e.clientX - this.#lastMouseX;
+        const deltaY = e.clientY - this.#lastMouseY;
 
         const euler = new THREE.Euler(0, 0, 0, 'YXZ');
         euler.setFromQuaternion(camera.quaternion);
@@ -106,8 +111,8 @@ class EditorMode {
 
         camera.quaternion.setFromEuler(euler);
 
-        lastMouseX = e.clientX;
-        lastMouseY = e.clientY;
+        this.#lastMouseX = e.clientX;
+        this.#lastMouseY = e.clientY;
     }
 
     handleWheel(e) {
@@ -140,8 +145,8 @@ class EditorMode {
 }
 
 class PlayerMode {
-    playerCube = null;
-    playerLine = null;
+    #playerCube = null;
+    #playerLine = null;
 
     constructor() {
         this.moveSpeed = 5;
@@ -160,13 +165,13 @@ class PlayerMode {
     }
 
     updatePlayerPosition() {
-        if (!this.playerCube) return;
+        if (!this.#playerCube) return;
 
         const direction = new THREE.Vector3();
-        this.playerCube.cube.getWorldDirection(direction);
+        this.#playerCube.cube.getWorldDirection(direction);
 
         let newPos = {x: 0, y: 0, z: 0};
-        let newRot = this.playerCube.body.rotation();
+        let newRot = this.#playerCube.body.rotation();
 
         if (keys['w']) {
             newPos.x += direction.x * this.moveSpeed * delta;
@@ -178,7 +183,7 @@ class PlayerMode {
         }
         {
             const right = new THREE.Vector3();
-            this.playerCube.cube.getWorldDirection(right);
+            this.#playerCube.cube.getWorldDirection(right);
             right.cross(new THREE.Vector3(0, 1, 0));
             right.normalize();
 
@@ -200,26 +205,25 @@ class PlayerMode {
             }
         }
 
-        this.characterController.computeColliderMovement(this.playerCube.collider, newPos);
+        this.characterController.computeColliderMovement(this.#playerCube.collider, newPos);
         let correctedMovement = this.characterController.computedMovement();
 
-        this.playerCube.body.setLinvel(new RAPIER.Vector3(correctedMovement.x / delta, correctedMovement.y / delta, correctedMovement.z / delta));
-        this.playerCube.body.setTranslation(new RAPIER.Vector3(this.playerCube.body.translation().x, 0.5, this.playerCube.body.translation().z));
-        this.playerCube.body.setRotation(newRot);
-        console.log(`X: ${this.playerCube.body.translation().x}, Y: ${this.playerCube.body.translation().y}, Z: ${this.playerCube.body.translation().z}`);
-
+        this.#playerCube.body.setLinvel(new RAPIER.Vector3(correctedMovement.x / delta, correctedMovement.y / delta, correctedMovement.z / delta));
+        this.#playerCube.body.setTranslation(new RAPIER.Vector3(this.#playerCube.body.translation().x, 0.5, this.#playerCube.body.translation().z));
+        this.#playerCube.body.setRotation(newRot);
+        console.log(`X: ${this.#playerCube.body.translation().x}, Y: ${this.#playerCube.body.translation().y}, Z: ${this.#playerCube.body.translation().z}`);
 
         // Update player line to always shoot from player position + 1 unit in front
         const shootDirection = new THREE.Vector3();
-        this.playerCube.cube.getWorldDirection(shootDirection);
+        this.#playerCube.cube.getWorldDirection(shootDirection);
         shootDirection.normalize();
-        const shootPosition = this.playerCube.cube.position.clone().add(shootDirection);
-        this.playerLine.geometry.setPositions( [
-            this.playerCube.cube.position.x, this.playerCube.cube.position.y, this.playerCube.cube.position.z,
+        const shootPosition = this.#playerCube.cube.position.clone().add(shootDirection);
+        this.#playerLine.geometry.setPositions( [
+            this.#playerCube.cube.position.x, this.#playerCube.cube.position.y, this.#playerCube.cube.position.z,
             shootPosition.x, shootPosition.y, shootPosition.z,
-            this.playerCube.cube.position.x, this.playerCube.cube.position.y, this.playerCube.cube.position.z
+            this.#playerCube.cube.position.x, this.#playerCube.cube.position.y, this.#playerCube.cube.position.z
         ] );
-        this.playerLight.position.set(this.playerCube.cube.position.x, this.playerCube.cube.position.y, this.playerCube.cube.position.z);
+        this.playerLight.position.set(this.#playerCube.cube.position.x, this.#playerCube.cube.position.y, this.#playerCube.cube.position.z);
     }
 
     enable() {
@@ -242,15 +246,15 @@ class PlayerMode {
         this.playerLight.position.set(x, 1, y);
         scene.add( this.playerLight );
 
-        this.playerCube = LevelGenerator.spawnCube(x, y, Colors.PLAYER, CubeTypes.PLAYER);
+        this.#playerCube = LevelLoader.spawnCube(x, y, 1, 1, ObjectTypes.PLAYER);
         this.characterController = world.createCharacterController(0.01);
         this.characterController.setApplyImpulsesToDynamicBodies(true);
-        this.playerCube.body.setRotation(QuaternionUtilities.quaternionFromEuler(0, Math.PI, 0))
+        this.#playerCube.body.setRotation(QuaternionUtilities.quaternionFromEuler(0, Math.PI, 0))
 
-        this.playerLine = new Line2();
-        this.playerLine.material.color.set( 0xffffff );
-        this.playerLine.material.linewidth = 10;
-        scene.add( this.playerLine );
+        this.#playerLine = new Line2();
+        this.#playerLine.material.color.set( 0xffffff );
+        this.#playerLine.material.linewidth = 10;
+        scene.add( this.#playerLine );
 
         document.addEventListener('keydown', this.handleKeyDown);
         document.addEventListener('keyup', this.handleKeyUp);
@@ -258,77 +262,39 @@ class PlayerMode {
     }
 
     disable() {
-        scene.remove(this.playerCube);
-        scene.remove(this.playerLine);
+        if (!this.#playerCube) return;
+
+        scene.remove(this.#playerLine);
         scene.remove(this.playerLight);
-        this.playerCube = null;
+
+        this.#playerCube.remove();
+        this.#playerCube = null;
+
         document.removeEventListener('keydown', this.handleKeyDown);
         document.removeEventListener('keyup', this.handleKeyUp);
         document.removeEventListener('updateEntities', this.updatePlayerPosition);
     }
 }
 
-const playerMode = new PlayerMode();
-const editorMode = new EditorMode();
+class LevelLoader {
+    static #addBasics(levelData) {
+        const floorSize = Math.max(levelData[0].length, levelData.length);
 
-isPlayModeCheckbox.addEventListener('change', (e) => {
-    if (e.target.checked) {
-        editorMode.disable();
-        playerMode.enable();
-        return;
-    }
-    
-    playerMode.disable();
-    editorMode.enable();
-});
-
-const Colors = {
-    FLOOR: { color: 0x333333, size: 1.0 },
-    WALL: { color: 0xFFFFFF, size: 1.0 },
-    GOAL: { color: 0x00ff00, size: 1.0 },
-    TRASH1: { color: 0xff0000, size: 0.75 },
-    TRASH2: { color: 0xffa500, size: 0.75 },
-    PLAYER: { color: 0x0000ff, size: 1.0 },
-};
-
-const CubeTypes = {
-    NONE: 0,
-    FIXED: 1,
-    DYNAMIC: 2,
-    PLAYER: 3
-};
-
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera( 10, window.innerWidth / window.innerHeight, 0.1, 1000 );
-
-const renderer = new THREE.WebGLRenderer();
-renderer.setSize( window.innerWidth, window.innerHeight );
-document.body.appendChild( renderer.domElement );
-
-class LevelGenerator {
-    static addBasics() {
-        // floor 
-        const geometry = new THREE.BoxGeometry( 38, 0, 38 );
-        const material = new THREE.MeshStandardMaterial( { color: Colors.FLOOR.color } );
-        const cube = new THREE.Mesh( geometry, material );
-        scene.add( cube );
-
-        // physics
-        const floorBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0.0, -0.5, 0.0))
-        const floorShape = RAPIER.ColliderDesc.cuboid(19.0, 0.5, 19.0)
-        world.createCollider(floorShape, floorBody)
+        const floor = this.spawnCube(0, 0, floorSize, floorSize, ObjectTypes.FLOOR);
+        floor.body.setTranslation(new RAPIER.Vector3(0, 0, 0));
 
         // ambient light
-        const light = new THREE.AmbientLight( 0x404040 ); // soft white light
-        scene.add( light );
+        const light = new THREE.AmbientLight(0x404040); // soft white light
+        scene.add(light);
 
         // point light
-        const spotLight = new THREE.PointLight( 0xffffff, 500, 100 );
+        const spotLight = new THREE.PointLight(0xffffff, floorSize*25, floorSize*2);
         spotLight.castShadow = true;
-        spotLight.position.set( 0, 25, 0 );
-        scene.add( spotLight );
-        const spotLightHelper = new THREE.PointLightHelper( spotLight, 1 );
-        scene.add( spotLightHelper );
+        spotLight.position.set(0, 25, 0);
+        scene.add(spotLight);
+
+        const spotLightHelper = new THREE.PointLightHelper(spotLight, 1);
+        scene.add(spotLightHelper);
     }
 
     static async loadLevel(levelPath) {
@@ -344,16 +310,16 @@ class LevelGenerator {
                 const y = rowIndex - levelData.length / 2;
                 switch (cell) {
                     case 'W':
-                        this.spawnCube(x, y, Colors.WALL, CubeTypes.FIXED);
+                        this.spawnCube(x, y, 1, 1, ObjectTypes.WALL);
                         break;
                     case 'G':
-                        this.spawnTrigger(x, y, Colors.GOAL);
+                        this.spawnCube(x, y, 1, 1, ObjectTypes.GOAL);
                         break;
                     case '1':
-                        this.spawnCube(x, y, Colors.TRASH1, CubeTypes.DYNAMIC);
+                        this.spawnCube(x, y, 0.75, 0.75, ObjectTypes.TRASH1);
                         break;
                     case '2':
-                        this.spawnCube(x, y, Colors.TRASH2, CubeTypes.DYNAMIC);
+                        this.spawnCube(x, y, 0.75, 0.75, ObjectTypes.TRASH2);
                         break;
                     case ' ':
                     case 'S':
@@ -364,11 +330,13 @@ class LevelGenerator {
             });
         });
 
+        this.#addBasics(levelData);
+
         return levelData;
     }
 
-    static spawnTrigger(x, y, object) {
-        const geometry = new THREE.BoxGeometry(object.size, object.size, object.size);
+    static #spawnTrigger(x, y, sizeX, sizeY, object) {
+        const geometry = new THREE.BoxGeometry(sizeX, 1, sizeY);
         const material = new THREE.MeshStandardMaterial({ color: object.color });
         const cube = new THREE.Mesh(geometry, material);
         cube.position.set(x, 0.5, y);
@@ -376,21 +344,28 @@ class LevelGenerator {
         return cube;
     };
 
-    static spawnCube(x, y, object, cubeType) {
-        const cube = this.spawnTrigger(x, y, object);
-        const body = cubeType === CubeTypes.FIXED ? world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, 0.5, y)) : 
-                     cubeType === CubeTypes.DYNAMIC ? world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 0.5, y)) : 
-                     cubeType === CubeTypes.PLAYER ? world.createRigidBody(RAPIER.RigidBodyDesc.kinematicVelocityBased().setTranslation(x, 0.5, y)) : null;
+    static spawnCube(x, y, sizeX, sizeY, object) {
+        const cube = this.#spawnTrigger(x, y, sizeX, sizeY, object);
+        if (object.type === null) {
+            return cube;
+        }
 
-        const shape = RAPIER.ColliderDesc.cuboid(object.size / 2, object.size / 2, object.size / 2)
+        const body = world.createRigidBody(object.type().setTranslation(x, 0.5, y)); 
+        const shape = RAPIER.ColliderDesc.cuboid(sizeX / 2, 1 / 2, sizeY / 2)
         const collider = world.createCollider(shape, body)
         dynamicBodies.push([cube, body, collider])
-        return {cube, body, collider};
+
+        const remove = () => {
+            dynamicBodies.splice(dynamicBodies.findIndex(([, b]) => b === body), 1);
+            scene.remove(cube);
+            world.removeCollider(collider);
+            world.removeRigidBody(body);
+        };
+        return {cube, body, collider, remove};
     };
 }
 
-LevelGenerator.addBasics();
-const levelData = await LevelGenerator.loadLevel('static/level/0.lvl');
+const levelData = await LevelLoader.loadLevel('static/level/0.lvl');
 
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 camera.position.z = 35;
@@ -405,7 +380,31 @@ const debugMaterial = new THREE.LineBasicMaterial({ vertexColors: true });
 const debugLine = new THREE.LineSegments(debugGeometry, debugMaterial);
 scene.add(debugLine);
 
-function gameLoop() {
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize( window.innerWidth, window.innerHeight );
+document.body.appendChild( renderer.domElement );
+
+
+const renderPhysicsDebug = document.createElement('label');
+renderPhysicsDebug.innerText = 'Physics Debug Visualizer';
+renderPhysicsDebug.style.position = 'absolute';
+renderPhysicsDebug.style.top = '40px';
+renderPhysicsDebug.style.right = '30px';
+renderPhysicsDebug.style.color = 'white';
+
+const isDebugModeCheckbox = document.createElement('input');
+isDebugModeCheckbox.type = 'checkbox';
+isDebugModeCheckbox.addEventListener('change', (e) => {
+    if (!e.target.checked) {
+        debugGeometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+        debugGeometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+    }
+});
+
+renderPhysicsDebug.appendChild(isDebugModeCheckbox);
+document.body.appendChild(renderPhysicsDebug);
+
+const gameLoop = () => {
     delta = clock.getDelta()
     world.timestep = Math.min(delta, 0.1)
 
@@ -424,13 +423,45 @@ function gameLoop() {
         dynamicBodies[i][0].quaternion.copy(dynamicBodies[i][1].rotation())
     }
 
-    const { vertices, colors } = world.debugRender();
-    debugGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    debugGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    
+    if (isDebugModeCheckbox.checked) {
+        const { vertices, colors } = world.debugRender();
+        debugGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        debugGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    }
+
     renderer.render(scene, camera);
 }
 
-const changeEvent = new Event('change');
-isPlayModeCheckbox.dispatchEvent(changeEvent);
+{
+    const playerMode = new PlayerMode();
+    const editorMode = new EditorMode();
+
+    const playModeLabel = document.createElement('label');
+    playModeLabel.innerText = 'PlayMode';
+    playModeLabel.style.position = 'absolute';
+    playModeLabel.style.top = '10px';
+    playModeLabel.style.right = '30px';
+    playModeLabel.style.color = 'white';
+
+    const isPlayModeCheckbox = document.createElement('input');
+    isPlayModeCheckbox.type = 'checkbox';
+
+    playModeLabel.appendChild(isPlayModeCheckbox);
+    document.body.appendChild(playModeLabel);
+
+    isPlayModeCheckbox.addEventListener('change', (e) => {
+        if (e.target.checked) {
+            editorMode.disable();
+            playerMode.enable();
+            return;
+        }
+        
+        playerMode.disable();
+        editorMode.enable();
+    });
+
+    const changeEvent = new Event('change');
+    isPlayModeCheckbox.dispatchEvent(changeEvent);
+}
+
 renderer.setAnimationLoop( gameLoop );
