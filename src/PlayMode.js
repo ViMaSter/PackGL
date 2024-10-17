@@ -4,6 +4,139 @@ import { ObjectTypes, attachedCollisionGroup, trashCollisionGroup } from './Leve
 import { Line2 } from 'three/addons/lines/Line2.js';
 import RAPIER from '@dimforge/rapier3d-compat'
 
+class AutomatedController
+{
+    #playerCube;
+    constructor(playerCube) {
+        this.#playerCube = playerCube;
+    }
+    #keysToPress = [];
+    #state = "MOVING_TO_TARGET";
+    #activeKeys = [];
+
+    deg2rad(deg) {
+        return deg * Math.PI / 180;
+    }
+
+    rad2deg(rad) {
+        return rad * 180 / Math.PI;
+    }
+
+    degreesToVector(degreesInRads) {
+        const vector = new THREE.Vector2(Math.cos(degreesInRads), Math.sin(degreesInRads));
+        const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+
+        if (length !== 0) {
+            vector.x /= length;
+            vector.y /= length;
+        }
+
+        return vector;
+    }
+
+    normalizedVectorToPositionFromPosition(positionFrom, positionTo) {
+        let vector = new THREE.Vector2(positionTo.x - positionFrom.x, positionTo.y - positionFrom.y);
+        let length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+
+        if (length !== 0) {
+            vector.x /= length;
+            vector.y /= length;
+        }
+
+        return vector;
+    }
+
+    calculateDirectionToTurn(currentPosition, currentDirection, targetPosition) {
+        const targetVector = this.normalizedVectorToPositionFromPosition(currentPosition, targetPosition);
+        const angle = Math.atan2(targetVector.y - currentDirection.y, targetVector.x - currentDirection.x);
+        if (Math.abs(angle) < this.deg2rad(10)) {
+            return 'forward';
+        }
+
+        if (angle < 0) {
+            return 'left';
+        } else {
+            return 'right';
+        }
+    }
+
+
+    applyInput() {
+        this[this.#state]();
+        // check keys to press
+        // for each key to press, check if it is already pressed, if not send keydown event
+        // for each key that is pressed, check if it is in keys to press, if not send keyup event
+        this.#keysToPress.forEach((key) => {
+            if (!this.#activeKeys.includes(key)) {
+                document.dispatchEvent(new KeyboardEvent('keydown', { key }));
+                this.#activeKeys.push(key);
+            }
+        });
+        this.#activeKeys.forEach((key) => {
+            if (!this.#keysToPress.includes(key)) {
+                document.dispatchEvent(new KeyboardEvent('keyup', { key }));
+                this.#activeKeys = this.#activeKeys.filter((k) => k !== key);
+            }
+        });
+    }
+
+    #target = {x: -5, y: 0};
+
+    async TURNING() {
+        const rotQuaternion = this.#playerCube.body.rotation();
+        const rotEulerInRads = QuaternionUtilities.quaternionToEuler(rotQuaternion).y;
+        const currentVector = this.degreesToVector(rotEulerInRads);
+        const from = {x: this.#playerCube.body.translation().x, y: this.#playerCube.body.translation().z};
+        const targetVector = this.normalizedVectorToPositionFromPosition(from, this.#target);
+
+        let angle = this.rad2deg(Math.atan2(targetVector.y - currentVector.y, targetVector.x - currentVector.x));
+        
+        if (angle < 0) {
+            this.#keysToPress = ['a'];
+        } else {
+            this.#keysToPress = ['a'];
+        }
+
+        if (Math.abs(currentVector.dot(targetVector)) > this.deg2rad(10)) {
+            this.#state = "MOVING_TO_TARGET";
+            return;
+        }
+    }
+
+    async MOVING_TO_TARGET() {
+        const rotQuaternion = this.#playerCube.body.rotation();
+        const rotEulerInRads = QuaternionUtilities.quaternionToEuler(rotQuaternion).y;
+        const currentVector = this.degreesToVector(rotEulerInRads);
+        const from = {x: this.#playerCube.body.translation().x, y: this.#playerCube.body.translation().z};
+        const targetVector = this.normalizedVectorToPositionFromPosition(from, this.#target);
+
+        let direction = calculateDirectionToTurn(from, currentVector, this.#target);
+        
+        console.log({currentVector, targetVector, dot: angle});
+        this.#keysToPress = [];
+        if (Math.abs(angle) > this.deg2rad(10)) {
+            this.#state = "TURNING";
+            this[this.#state]();
+            return;
+        }
+
+        this.#keysToPress = ['w'];
+        if (angle > this.deg2rad(0.9)) {
+            this["TURNING"]();
+            return;
+        }
+
+        // Change target to x:5 when reached
+        if (Math.abs(this.#playerCube.body.translation().x - this.#target.x) < 0.1 &&
+            Math.abs(this.#playerCube.body.translation().z - this.#target.z) < 0.1) {
+            this.#target = { x: 5, y: 0, z: 0 };
+        }
+        
+        return;
+    }
+}
+
+
 export class PlayMode {
     playerCube = null;
     #playerLine = null;
@@ -12,6 +145,8 @@ export class PlayMode {
     #levelLoader;
     #scene;
     #world;
+
+    #automatedController;
 
     constructor(levelLoader, scene, world) {
         this.#levelLoader = levelLoader;
@@ -217,6 +352,8 @@ export class PlayMode {
         this.characterController.setApplyImpulsesToDynamicBodies(true);
         this.playerCube.body.setRotation(QuaternionUtilities.quaternionFromEuler(0, Math.PI, 0))
 
+        this.#automatedController = new AutomatedController(this.playerCube);
+
         this.#playerLine = new Line2();
         this.#playerLine.material.color.set( 0xffffff );
         this.#playerLine.material.linewidth = 10;
@@ -225,6 +362,7 @@ export class PlayMode {
         document.addEventListener('keydown', this.handleKeyDown);
         document.addEventListener('keyup', this.handleKeyUp);
         document.addEventListener('update', this.updatePlayerPosition);
+        document.addEventListener('update', this.#automatedController.applyInput.bind(this.#automatedController));
     }
 
     disable() {
@@ -239,5 +377,6 @@ export class PlayMode {
         document.removeEventListener('keydown', this.handleKeyDown);
         document.removeEventListener('keyup', this.handleKeyUp);
         document.removeEventListener('update', this.updatePlayerPosition);
+        document.removeEventListener('update', this.#automatedController.applyInput.bind(this.#automatedController));
     }
 }
